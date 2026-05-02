@@ -1,15 +1,15 @@
 (function () {
-  // ─── Config ────────────────────────────────────────────────────────────────
+  // ─── Config ─────────────────────────────────────────────────────────────────
   const FIREBASE_URL = "https://rovaapp2026-default-rtdb.firebaseio.com";
   const MAX_MESSAGES = 100; // max messages to keep per room
 
-  // ─── State ─────────────────────────────────────────────────────────────────
+  // ─── State ───────────────────────────────────────────────────────────────────
   let sockets = {};         // roomId -> WebSocket
   let roomMessages = {};    // roomId -> array of message objects
   let newMessageRooms = []; // rooms that have received new messages since last hat check
   let latestMessage = {};   // roomId -> latest message object
 
-  // ─── Helpers ───────────────────────────────────────────────────────────────
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
   function getRoomPath(room) {
     return `chat_rooms/${room.replace(/[.#$\[\]\/]/g, '_')}`;
   }
@@ -117,7 +117,7 @@
     } catch (e) {}
   }
 
-  // ─── Extension ─────────────────────────────────────────────────────────────
+  // ─── Extension ───────────────────────────────────────────────────────────────
   class RovaChat {
     getInfo() {
       return {
@@ -126,7 +126,7 @@
         color1: '#c2185b',
         color2: '#880e4f',
         blocks: [
-          // ── Connection ────────────────────────────────────────────────────
+          // ── Connection ───────────────────────────────────────────────────────
           {
             opcode: 'joinRoom',
             blockType: Scratch.BlockType.COMMAND,
@@ -152,7 +152,7 @@
             }
           },
           '---',
-          // ── Sending ───────────────────────────────────────────────────────
+          // ── Sending ──────────────────────────────────────────────────────────
           {
             opcode: 'sendMessage',
             blockType: Scratch.BlockType.COMMAND,
@@ -175,7 +175,7 @@
             }
           },
           '---',
-          // ── Receiving — hat blocks ─────────────────────────────────────────
+          // ── Receiving — hat blocks ────────────────────────────────────────────
           {
             opcode: 'whenNewMessage',
             blockType: Scratch.BlockType.HAT,
@@ -186,7 +186,7 @@
             }
           },
           '---',
-          // ── Latest message ────────────────────────────────────────────────
+          // ── Latest message ────────────────────────────────────────────────────
           {
             opcode: 'latestMsgText',
             blockType: Scratch.BlockType.REPORTER,
@@ -228,7 +228,7 @@
             }
           },
           '---',
-          // ── All messages ──────────────────────────────────────────────────
+          // ── All messages ──────────────────────────────────────────────────────
           {
             opcode: 'getMessageCount',
             blockType: Scratch.BlockType.REPORTER,
@@ -282,7 +282,7 @@
             }
           },
           '---',
-          // ── Utilities ─────────────────────────────────────────────────────
+          // ── Utilities ─────────────────────────────────────────────────────────
           {
             opcode: 'clearLocalMessages',
             blockType: Scratch.BlockType.COMMAND,
@@ -308,7 +308,7 @@
       };
     }
 
-    // ── Connection ────────────────────────────────────────────────────────────
+    // ── Connection ────────────────────────────────────────────────────────────────
     joinRoom({ ROOM }) {
       connectRoom(String(ROOM));
     }
@@ -326,7 +326,7 @@
       return !!sockets[room] && sockets[room].readyState !== 2;
     }
 
-    // ── Sending ───────────────────────────────────────────────────────────────
+    // ── Sending ───────────────────────────────────────────────────────────────────
     async sendMessage({ MSG, USER, ROOM }) {
       await postMessage(String(ROOM), {
         text: String(MSG),
@@ -345,7 +345,7 @@
       });
     }
 
-    // ── Hat blocks ────────────────────────────────────────────────────────────
+    // ── Hat blocks ────────────────────────────────────────────────────────────────
     whenNewMessage({ ROOM }) {
       const room = String(ROOM);
       if (newMessageRooms.includes(room)) {
@@ -355,7 +355,7 @@
       return false;
     }
 
-    // ── Latest message ────────────────────────────────────────────────────────
+    // ── Latest message ────────────────────────────────────────────────────────────
     latestMsgText({ ROOM }) {
       return latestMessage[String(ROOM)]?.text ?? '';
     }
@@ -376,7 +376,7 @@
       return latestMessage[String(ROOM)]?.encrypted ?? false;
     }
 
-    // ── All messages ──────────────────────────────────────────────────────────
+    // ── All messages ──────────────────────────────────────────────────────────────
     getMessageCount({ ROOM }) {
       return (roomMessages[String(ROOM)] ?? []).length;
     }
@@ -409,7 +409,7 @@
       return JSON.stringify(roomMessages[String(ROOM)] ?? []);
     }
 
-    // ── Utilities ─────────────────────────────────────────────────────────────
+    // ── Utilities ─────────────────────────────────────────────────────────────────
     clearLocalMessages({ ROOM }) {
       roomMessages[String(ROOM)] = [];
     }
