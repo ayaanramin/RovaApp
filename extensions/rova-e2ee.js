@@ -8,11 +8,9 @@
       throw new Error("Rova E2EE requires unsandboxed mode.");
     }
 
-    // ── Storage key names ──────────────────────────────────────────────────
     const STORAGE_PUB  = 'rova_e2ee_publicKey';
     const STORAGE_PRIV = 'rova_e2ee_privateKey';
 
-    // ── Crypto helpers ─────────────────────────────────────────────────────
     function toBase64(buffer) {
       let binary = '';
       const bytes = new Uint8Array(buffer);
@@ -60,11 +58,17 @@
       return toBase64(await crypto.subtle.exportKey('raw', shared));
     }
 
+    // ── Shared key cache: secret b64 → CryptoKey ──────────────────────────
+    // Importing the same key over and over is expensive. Cache it.
+    const keyCache = new Map();
     async function importSharedKey(b64) {
-      return crypto.subtle.importKey(
+      if (keyCache.has(b64)) return keyCache.get(b64);
+      const key = await crypto.subtle.importKey(
         'raw', fromBase64(b64),
         { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
       );
+      keyCache.set(b64, key);
+      return key;
     }
 
     async function encryptMsg(message, sharedKeyB64) {
@@ -86,7 +90,6 @@
       return new TextDecoder().decode(dec);
     }
 
-    // ── Safe localStorage wrappers ─────────────────────────────────────────
     function lsGet(key) {
       try { return localStorage.getItem(key) || ''; } catch(e) { return ''; }
     }
@@ -94,18 +97,18 @@
       try { localStorage.setItem(key, value); } catch(e) {}
     }
 
-    // ── Extension class ────────────────────────────────────────────────────
     class RovaE2EE {
       constructor() {
-        this._pub    = '';
-        this._priv   = '';
-        this._secret = '';
+        this._pub       = '';
+        this._priv      = '';
+        this._secret    = '';
         this._encrypted = '';
-        this._iv     = '';
+        this._iv        = '';
         this._decrypted = '';
-        this._ready  = false;
-
-        // Auto-load keys on startup
+        this._ready     = false;
+        // Decrypted message cache: msgId → decrypted text
+        this._cache     = {};
+        this._batchResult = '[]';
         this._autoLoad();
       }
 
@@ -113,27 +116,24 @@
         const savedPub  = lsGet(STORAGE_PUB);
         const savedPriv = lsGet(STORAGE_PRIV);
         if (savedPub && savedPriv) {
-          // Verify they're valid by trying to import them
           try {
             await importPublicKey(savedPub);
             await importPrivateKey(savedPriv);
-            this._pub  = savedPub;
-            this._priv = savedPriv;
+            this._pub   = savedPub;
+            this._priv  = savedPriv;
             this._ready = true;
           } catch(e) {
-            // Corrupted — regenerate
             await this._generate();
           }
         } else {
-          // First time — generate
           await this._generate();
         }
       }
 
       async _generate() {
         const { pub, priv } = await generateKeyPair();
-        this._pub  = pub;
-        this._priv = priv;
+        this._pub   = pub;
+        this._priv  = priv;
         lsSet(STORAGE_PUB,  pub);
         lsSet(STORAGE_PRIV, priv);
         this._ready = true;
@@ -146,7 +146,7 @@
           color1: '#2d6a4f',
           color2: '#1b4332',
           blocks: [
-            // ── Keys ──────────────────────────────────────────────────────
+            // ── Keys ────────────────────────────────────────────────────────
             {
               opcode: 'isReady',
               blockType: Scratch.BlockType.BOOLEAN,
@@ -168,7 +168,7 @@
               text: 'regenerate my keys'
             },
             '---',
-            // ── Secret ────────────────────────────────────────────────────
+            // ── Secret ──────────────────────────────────────────────────────
             {
               opcode: 'createSecret',
               blockType: Scratch.BlockType.REPORTER,
@@ -178,7 +178,7 @@
               }
             },
             '---',
-            // ── Encrypt ───────────────────────────────────────────────────
+            // ── Encrypt ─────────────────────────────────────────────────────
             {
               opcode: 'encrypt',
               blockType: Scratch.BlockType.COMMAND,
@@ -199,7 +199,7 @@
               text: 'IV'
             },
             '---',
-            // ── Decrypt ───────────────────────────────────────────────────
+            // ── Decrypt (single) ────────────────────────────────────────────
             {
               opcode: 'decrypt',
               blockType: Scratch.BlockType.COMMAND,
@@ -214,26 +214,71 @@
               opcode: 'getDecrypted',
               blockType: Scratch.BlockType.REPORTER,
               text: 'Decrypted'
+            },
+            '---',
+            // ── Batch decrypt ────────────────────────────────────────────────
+            {
+              opcode: 'batchDecrypt',
+              blockType: Scratch.BlockType.COMMAND,
+              text: 'batch decrypt messages JSON [JSON] with secret [SECRET]',
+              arguments: {
+                JSON:   { type: Scratch.ArgumentType.STRING, defaultValue: '[]' },
+                SECRET: { type: Scratch.ArgumentType.STRING, defaultValue: '' }
+              }
+            },
+            {
+              opcode: 'getBatchResult',
+              blockType: Scratch.BlockType.REPORTER,
+              text: 'batch decrypted messages'
+            },
+            '---',
+            // ── Cache ────────────────────────────────────────────────────────
+            {
+              opcode: 'decryptCached',
+              blockType: Scratch.BlockType.COMMAND,
+              text: 'decrypt [ENC] IV [IV] with secret [SECRET] cache as [ID]',
+              arguments: {
+                ENC:    { type: Scratch.ArgumentType.STRING, defaultValue: '' },
+                IV:     { type: Scratch.ArgumentType.STRING, defaultValue: '' },
+                SECRET: { type: Scratch.ArgumentType.STRING, defaultValue: '' },
+                ID:     { type: Scratch.ArgumentType.STRING, defaultValue: 'msg-id' }
+              }
+            },
+            {
+              opcode: 'getCached',
+              blockType: Scratch.BlockType.REPORTER,
+              text: 'cached decrypted message [ID]',
+              arguments: {
+                ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'msg-id' }
+              }
+            },
+            {
+              opcode: 'isCached',
+              blockType: Scratch.BlockType.BOOLEAN,
+              text: 'message [ID] already decrypted?',
+              arguments: {
+                ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'msg-id' }
+              }
+            },
+            {
+              opcode: 'clearCache',
+              blockType: Scratch.BlockType.COMMAND,
+              text: 'clear decryption cache'
             }
           ]
         };
       }
 
-      // ── Block implementations ──────────────────────────────────────────
-      isReady() { return this._ready; }
-      getPublicKey() { return this._pub; }
+      // ── Block implementations ────────────────────────────────────────────
+      isReady()       { return this._ready; }
+      getPublicKey()  { return this._pub; }
       getPrivateKey() { return this._priv; }
 
-      async regenerateKeys() {
-        await this._generate();
-      }
+      async regenerateKeys() { await this._generate(); }
 
       async createSecret({ PUBKEY }) {
-        try {
-          return await deriveSecret(String(PUBKEY), this._priv);
-        } catch(e) {
-          return '';
-        }
+        try { return await deriveSecret(String(PUBKEY), this._priv); }
+        catch(e) { return ''; }
       }
 
       async encrypt({ MSG, SECRET }) {
@@ -248,7 +293,7 @@
       }
 
       getEncrypted() { return this._encrypted; }
-      getIV() { return this._iv; }
+      getIV()        { return this._iv; }
 
       async decrypt({ ENC, IV, SECRET }) {
         try {
@@ -259,6 +304,69 @@
       }
 
       getDecrypted() { return this._decrypted; }
+
+      // ── Batch decrypt: all messages in parallel ───────────────────────────
+      async batchDecrypt({ JSON: jsonStr, SECRET }) {
+        try {
+          const msgs   = JSON.parse(String(jsonStr));
+          const secret = String(SECRET);
+          if (!Array.isArray(msgs)) { this._batchResult = '[]'; return; }
+
+          // Run ALL decryptions simultaneously with Promise.all
+          const results = await Promise.all(
+            msgs.map(async (msg) => {
+              // Skip if already in cache
+              const id = msg.id || msg.msg_id || '';
+              if (id && this._cache[id] !== undefined) {
+                return { ...msg, decrypted: this._cache[id] };
+              }
+              try {
+                const enc = msg.text || msg.encrypted || '';
+                const iv  = msg.iv   || '';
+                const decrypted = await decryptMsg(enc, iv, secret);
+                if (id) this._cache[id] = decrypted;
+                return { ...msg, decrypted };
+              } catch(e) {
+                return { ...msg, decrypted: '' };
+              }
+            })
+          );
+
+          this._batchResult = JSON.stringify(results);
+        } catch(e) {
+          this._batchResult = '[]';
+        }
+      }
+
+      getBatchResult() { return this._batchResult; }
+
+      // ── Cache helpers ────────────────────────────────────────────────────
+      async decryptCached({ ENC, IV, SECRET, ID }) {
+        const id = String(ID);
+        if (this._cache[id] !== undefined) {
+          this._decrypted = this._cache[id];
+          return;
+        }
+        try {
+          const result = await decryptMsg(String(ENC), String(IV), String(SECRET));
+          this._cache[id] = result;
+          this._decrypted = result;
+        } catch(e) {
+          this._decrypted = '';
+        }
+      }
+
+      getCached({ ID }) {
+        return this._cache[String(ID)] ?? '';
+      }
+
+      isCached({ ID }) {
+        return String(ID) in this._cache;
+      }
+
+      clearCache() {
+        this._cache = {};
+      }
     }
 
     Scratch.extensions.register(new RovaE2EE());
