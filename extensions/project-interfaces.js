@@ -285,6 +285,14 @@
                         },
                     },
                     {
+                        opcode: "IsMouseDown",
+                        text: "mouse held on [id]?",
+                        blockType: Scratch.BlockType.BOOLEAN,
+                        arguments: {
+                            id: { type: Scratch.ArgumentType.STRING, defaultValue: "My element" },
+                        },
+                    },
+                    {
                         opcode: "ElementWidth",
                         text: "width of element [id]",
                         blockType: Scratch.BlockType.REPORTER,
@@ -595,7 +603,7 @@
             metadata[args.id] = {
                 x: 0, y: 0, direction: 90,
                 width: boundingRect.width, height: boundingRect.height,
-                hovered: false, clicked: false,
+                hovered: false, clicked: false, mousedown: false,
                 anchor: "center",
             };
             this.FixPos(args.id);
@@ -608,6 +616,9 @@
             element.addEventListener("mouseover", () => (metadata[args.id].hovered = true));
             element.addEventListener("mouseout", () => (metadata[args.id].hovered = false));
             element.addEventListener("click", () => (metadata[args.id].clicked = true));
+            element.addEventListener("mousedown", () => (metadata[args.id].mousedown = true));
+            element.addEventListener("mouseup", () => (metadata[args.id].mousedown = false));
+            element.addEventListener("mouseleave", () => (metadata[args.id].mousedown = false));
         }
         Position (args) {
             const element = elements[args.id];
@@ -708,13 +719,16 @@
             metadata[args.id] = {
                 x: 0, y: 0, direction: 90,
                 width: boundingRect.width, height: boundingRect.height,
-                hovered: false, clicked: false,
+                hovered: false, clicked: false, mousedown: false,
                 anchor: "center",
             };
             this.FixPos(args.id);
             element.addEventListener("mouseover", () => (metadata[args.id].hovered = true));
             element.addEventListener("mouseout", () => (metadata[args.id].hovered = false));
             element.addEventListener("click", () => (metadata[args.id].clicked = true));
+            element.addEventListener("mousedown", () => (metadata[args.id].mousedown = true));
+            element.addEventListener("mouseup", () => (metadata[args.id].mousedown = false));
+            element.addEventListener("mouseleave", () => (metadata[args.id].mousedown = false));
         }
         Attribute (args) {
             const element = elements[args.id];
@@ -737,6 +751,10 @@
         IsHovered (args) {
             if (!elements[args.id]) return "";
             return metadata[args.id].hovered;
+        }
+        IsMouseDown (args) {
+            if (!elements[args.id]) return false;
+            return !!metadata[args.id].mousedown;
         }
         Delete (args) {
             const element = elements[args.id];
