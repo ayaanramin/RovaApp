@@ -306,28 +306,56 @@
       getDecrypted() { return this._decrypted; }
 
       // ── Batch decrypt: all messages in parallel ───────────────────────────
+      // Handles two formats:
+      // Format A: { text: '{IV:...,Encrypted:...}', ... }  (your current format)
+      // Format B: { text: '...', iv: '...', ... }                  (flat format)
       async batchDecrypt({ JSON: jsonStr, SECRET }) {
         try {
           const msgs   = JSON.parse(String(jsonStr));
           const secret = String(SECRET);
           if (!Array.isArray(msgs)) { this._batchResult = '[]'; return; }
 
-          // Run ALL decryptions simultaneously with Promise.all
           const results = await Promise.all(
             msgs.map(async (msg) => {
-              // Skip if already in cache
               const id = msg.id || msg.msg_id || '';
+
+              // Return from cache immediately if already decrypted
               if (id && this._cache[id] !== undefined) {
                 return { ...msg, decrypted: this._cache[id] };
               }
+
               try {
-                const enc = msg.text || msg.encrypted || '';
-                const iv  = msg.iv   || '';
+                let enc, iv;
+
+                // Format A: text field is a JSON string with IV and Encrypted keys
+                if (typeof msg.text === 'string') {
+                  try {
+                    const parsed = JSON.parse(msg.text);
+                    if (parsed && parsed.IV && parsed.Encrypted) {
+                      iv  = parsed.IV;
+                      enc = parsed.Encrypted;
+                    }
+                  } catch(e) {
+                    // text is not JSON — treat as flat format below
+                  }
+                }
+
+                // Format B: flat fields
+                if (!enc || !iv) {
+                  enc = msg.encrypted || msg.text || '';
+                  iv  = msg.iv || '';
+                }
+
+                if (!enc || !iv) {
+                  return { ...msg, decrypted: msg.text || '' };
+                }
+
                 const decrypted = await decryptMsg(enc, iv, secret);
                 if (id) this._cache[id] = decrypted;
                 return { ...msg, decrypted };
               } catch(e) {
-                return { ...msg, decrypted: '' };
+                // Decryption failed — return raw text as fallback
+                return { ...msg, decrypted: msg.text || '' };
               }
             })
           );
