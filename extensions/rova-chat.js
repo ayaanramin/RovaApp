@@ -6,6 +6,7 @@
 
   // ─── State ────────────────────────────────────────────────────────────────────
   let sockets          = {};  // roomId -> EventSource
+  let initialLoaded    = {};  // roomId -> bool: initial SSE snapshot received
   let roomMessages     = {};  // roomId -> array of message objects (oldest first)
   let newMessageRooms  = [];  // rooms with unread new messages
   let latestMessage    = {};  // roomId -> latest message object
@@ -20,6 +21,7 @@
 
   // Initial SSE connection — loads last N messages and watches for new ones
   function startSSE(room, path) {
+    initialLoaded[room] = false;
     if (sockets[room]) {
       try { sockets[room].close(); } catch(e) {}
     }
@@ -29,7 +31,7 @@
     es.addEventListener('put', (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (!data.data) return;
+        if (!data.data) { initialLoaded[room] = true; return; }
         if (!roomMessages[room]) roomMessages[room] = [];
 
         if (data.path === '/') {
@@ -158,6 +160,12 @@
             opcode: 'isInRoom',
             blockType: Scratch.BlockType.BOOLEAN,
             text: 'connected to room [ROOM]?',
+            arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
+          },
+          {
+            opcode: 'roomLoaded',
+            blockType: Scratch.BlockType.BOOLEAN,
+            text: 'room [ROOM] messages loaded?',
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
           },
           '---',
@@ -350,6 +358,10 @@
     isInRoom({ ROOM }) {
       const room = String(ROOM);
       return !!sockets[room] && sockets[room].readyState !== 2;
+    }
+
+    roomLoaded({ ROOM }) {
+      return !!initialLoaded[String(ROOM)];
     }
 
     // ── Sending ─────────────────────────────────────────────────────────────────
