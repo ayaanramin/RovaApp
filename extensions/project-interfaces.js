@@ -741,9 +741,9 @@
                     if (element.tagName != "IMG" && element.tagName != "VIDEO" && element.tagName != "svg") return;
                     return element.tagName === "svg" ? element.outerHTML : element.src;
                 case "Width":
-                    return element.tagName === "SVG" ? element.getBBox().width : element.getBoundingClientRect().width;
+                    return element.tagName === "SVG" ? element.getBBox().width : element.offsetWidth;
                 case "Height":
-                    return element.tagName === "SVG" ? element.getBBox().height : element.getBoundingClientRect().height;
+                    return element.tagName === "SVG" ? element.getBBox().height : element.offsetHeight;
                 default:
                     return meta[args.attr.toLowerCase()];
             }
