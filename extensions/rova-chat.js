@@ -1,31 +1,30 @@
 (function () {
   // ─── Config ───────────────────────────────────────────────────────────────────
   const FIREBASE_URL = "https://rovaapp2026-default-rtdb.firebaseio.com";
-  let initialLoadSize = 50;  // messages fetched on join
-  let pageSize        = 30;  // messages fetched per "load older" call
+  let initialLoadSize = 50;
 
   // ─── State ────────────────────────────────────────────────────────────────────
-  let sockets          = {};  // roomId -> EventSource
-  let initialLoaded    = {};  // roomId -> bool: initial SSE snapshot received
-  let roomMessages     = {};  // roomId -> array of message objects (oldest first)
-  let newMessageRooms  = [];  // rooms with unread new messages
-  let latestMessage    = {};  // roomId -> latest message object
-  let oldestTime       = {};  // roomId -> timestamp of oldest loaded message
-  let hasMore          = {};  // roomId -> bool: are there older messages in DB?
-  let olderLoaded      = [];  // rooms that just finished loading older messages
+  let sockets         = {};
+  let initialLoaded   = {};
+  let roomMessages    = {};
+  let newMessageRooms = [];
+  let latestMessage   = {};
+  let oldestKey       = {};  // Firebase push key of oldest loaded message
+  let hasMore         = {};
+  let olderLoaded     = [];
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
   function getRoomPath(room) {
     return `chat_rooms/${room.replace(/[.#$\[\]\/]/g, '_')}`;
   }
 
-  // Initial SSE connection — loads last N messages and watches for new ones
+  // ── SSE — uses $key ordering (no index needed) ────────────────────────────────
   function startSSE(room, path) {
     initialLoaded[room] = false;
     if (sockets[room]) {
       try { sockets[room].close(); } catch(e) {}
     }
-    const url = `${FIREBASE_URL}/${path}/messages.json?alt=sse&orderBy="time"&limitToLast=${initialLoadSize}`;
+    const url = `${FIREBASE_URL}/${path}/messages.json?alt=sse&orderBy="$key"&limitToLast=${initialLoadSize}`;
     const es = new EventSource(url);
 
     es.addEventListener('put', (e) => {
@@ -35,29 +34,23 @@
         if (!roomMessages[room]) roomMessages[room] = [];
 
         if (data.path === '/') {
-          // ── Initial snapshot ────────────────────────────────────────────────
           const msgs = data.data;
           if (typeof msgs === 'object') {
             const arr = Object.entries(msgs)
               .map(([k, v]) => ({ id: k, ...v }))
               .sort((a, b) => (a.time || 0) - (b.time || 0));
             roomMessages[room] = arr;
-            // Track oldest so pagination knows where to start
             if (arr.length > 0) {
-              oldestTime[room] = arr[0].time;
-              // If we got exactly initialLoadSize messages, there are probably more
+              oldestKey[room] = arr[0].id;
               hasMore[room] = arr.length >= initialLoadSize;
             } else {
               hasMore[room] = false;
             }
           }
-          // ── Mark initial load complete ──────────────────────────────────────
           initialLoaded[room] = true;
         } else {
-          // ── New real-time message ───────────────────────────────────────────
           const msgId = data.path.replace('/', '');
           const msg = { id: msgId, ...data.data };
-          // Avoid duplicates
           if (!roomMessages[room].find(m => m.id === msgId)) {
             roomMessages[room].push(msg);
           }
@@ -91,16 +84,15 @@
     sockets[room] = es;
   }
 
-  // Load a page of messages older than what we currently have
+  // ── Pagination — also uses $key ordering ──────────────────────────────────────
   async function fetchOlderMessages(room, count) {
     const path = getRoomPath(room);
-    const oldest = oldestTime[room];
+    const oldest = oldestKey[room];
 
-    // If no oldest time recorded yet, nothing to paginate from
-    if (oldest === undefined) { hasMore[room] = false; return; }
-
-    // endBefore the oldest time we have so we don't re-fetch it
-    const url = `${FIREBASE_URL}/${path}/messages.json?orderBy="time"&endBefore=${oldest}&limitToLast=${count}`;
+    // If no oldest key (fresh or after clear), fetch most recent N messages
+    const url = oldest
+      ? `${FIREBASE_URL}/${path}/messages.json?orderBy="$key"&endBefore="${oldest}"&limitToLast=${count}`
+      : `${FIREBASE_URL}/${path}/messages.json?orderBy="$key"&limitToLast=${count}`;
     try {
       const res  = await fetch(url);
       const data = await res.json();
@@ -114,13 +106,8 @@
         .map(([k, v]) => ({ id: k, ...v }))
         .sort((a, b) => (a.time || 0) - (b.time || 0));
 
-      // Prepend older messages to the front
       roomMessages[room] = [...arr, ...(roomMessages[room] || [])];
-
-      // Update oldest pointer
-      if (arr.length > 0) oldestTime[room] = arr[0].time;
-
-      // If we got fewer than requested, we've hit the beginning
+      if (arr.length > 0) oldestKey[room] = arr[0].id;
       hasMore[room] = arr.length >= count;
     } catch(e) {
       hasMore[room] = false;
@@ -147,7 +134,6 @@
         color1: '#c2185b',
         color2: '#880e4f',
         blocks: [
-
           // ── Connection ────────────────────────────────────────────────────────
           {
             opcode: 'joinRoom',
@@ -174,7 +160,6 @@
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
           },
           '---',
-
           // ── Sending ───────────────────────────────────────────────────────────
           {
             opcode: 'sendMessage',
@@ -198,7 +183,6 @@
             }
           },
           '---',
-
           // ── Real-time hat ─────────────────────────────────────────────────────
           {
             opcode: 'whenNewMessage',
@@ -208,7 +192,6 @@
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
           },
           '---',
-
           // ── Latest message ────────────────────────────────────────────────────
           {
             opcode: 'latestMsgText',
@@ -241,8 +224,7 @@
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
           },
           '---',
-
-          // ── All messages (indexed) ────────────────────────────────────────────
+          // ── All messages ──────────────────────────────────────────────────────
           {
             opcode: 'getMessageCount',
             blockType: Scratch.BlockType.REPORTER,
@@ -292,7 +274,6 @@
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
           },
           '---',
-
           // ── Pagination ────────────────────────────────────────────────────────
           {
             opcode: 'setInitialLoad',
@@ -323,7 +304,6 @@
             arguments: { ROOM: { type: Scratch.ArgumentType.STRING, defaultValue: 'general' } }
           },
           '---',
-
           // ── Utilities ─────────────────────────────────────────────────────────
           {
             opcode: 'clearLocalMessages',
@@ -449,25 +429,24 @@
     async loadOlderMessages({ COUNT, ROOM }) {
       const room = String(ROOM);
       const count = Math.max(1, Math.round(Number(COUNT)));
-      if (!hasMore[room] && oldestTime[room] !== undefined) return;
+      if (hasMore[room] === false) return;
       await fetchOlderMessages(room, count);
       if (!olderLoaded.includes(room)) olderLoaded.push(room);
     }
 
     hasMoreMessages({ ROOM }) {
-      const room = String(ROOM);
-      // If we've never checked, assume there might be more
-      return hasMore[room] !== false;
+      return hasMore[String(ROOM)] !== false;
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────────
     clearLocalMessages({ ROOM }) {
       const room = String(ROOM);
-      roomMessages[room] = [];
-      delete oldestTime[room];
+      roomMessages[room]  = [];
+      delete oldestKey[room];
       delete hasMore[room];
       initialLoaded[room] = false;
     }
+
     getTimestamp() { return Date.now(); }
 
     formatTime({ TS }) {
