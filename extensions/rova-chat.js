@@ -96,6 +96,9 @@
     const path = getRoomPath(room);
     const oldest = oldestTime[room];
 
+    // If no oldest time recorded yet, nothing to paginate from
+    if (oldest === undefined) { hasMore[room] = false; return; }
+
     // endBefore the oldest time we have so we don't re-fetch it
     const url = `${FIREBASE_URL}/${path}/messages.json?orderBy="time"&endBefore=${oldest}&limitToLast=${count}`;
     try {
