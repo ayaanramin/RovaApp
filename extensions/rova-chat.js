@@ -458,7 +458,13 @@
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────────
-    clearLocalMessages({ ROOM }) { roomMessages[String(ROOM)] = []; }
+    clearLocalMessages({ ROOM }) {
+      const room = String(ROOM);
+      roomMessages[room] = [];
+      delete oldestTime[room];
+      delete hasMore[room];
+      initialLoaded[room] = false;
+    }
     getTimestamp() { return Date.now(); }
 
     formatTime({ TS }) {
