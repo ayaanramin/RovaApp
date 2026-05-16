@@ -252,6 +252,24 @@
               NUM: { type: Scratch.ArgumentType.NUMBER, defaultValue: 10 },
               QUERY: { type: Scratch.ArgumentType.STRING, defaultValue: "Aliantos" }
             }
+          },
+          "---",
+          {
+            opcode: "getBulkTrackAtt",
+            blockType: Scratch.BlockType.REPORTER,
+            text: Scratch.translate("get [THING] from track IDs [IDS]"),
+            arguments: {
+              THING: { type: Scratch.ArgumentType.STRING, menu: "TRACKS" },
+              IDS: { type: Scratch.ArgumentType.STRING, defaultValue: "[]" }
+            }
+          },
+          {
+            opcode: "getTrackMetadataList",
+            blockType: Scratch.BlockType.REPORTER,
+            text: Scratch.translate("get metadata list from track IDs [IDS]"),
+            arguments: {
+              IDS: { type: Scratch.ArgumentType.STRING, defaultValue: "[]" }
+            }
           }
         ],
         menus: {
@@ -445,6 +463,10 @@
       const req = await fetch(proxy + encodeURIComponent(url));
       const json = await req.json();
       if (json && json.collection) {
+        // Cache all found tracks for instant attribute retrieval
+        json.collection.forEach(track => {
+          setCache(`track-${track.id}`, track);
+        });
         return JSON.stringify(json.collection.map(item => item.id));
       }
       return "[]";
@@ -456,6 +478,10 @@
       const req = await fetch(proxy + encodeURIComponent(url));
       const json = await req.json();
       if (json && json.collection) {
+        // Cache all found tracks for instant attribute retrieval
+        json.collection.forEach(item => {
+          if (item.track) setCache(`track-${item.track.id}`, item.track);
+        });
         return JSON.stringify(json.collection.map(item => item.track.id));
       }
       return "[]";
@@ -516,9 +542,47 @@
       const req = await fetch(proxy + encodeURIComponent(url));
       const json = await req.json();
       if (json && json.collection) {
+        // Cache all found artists
+        json.collection.forEach(artist => {
+          setCache(`artist-${artist.id}`, artist);
+        });
         return JSON.stringify(json.collection.map(item => item.id));
       }
       return "[]";
+    }
+
+    async getBulkTrackAtt(args) {
+      const ids = JSON.parse(Cast.toString(args.IDS) || "[]");
+      const thing = Cast.toString(args.THING);
+      const results = [];
+      
+      for (const id of ids) {
+        results.push(await this.getTrackAtt({ ID: id, THING: thing }));
+      }
+      
+      return JSON.stringify(results);
+    }
+
+    async getTrackMetadataList(args) {
+      const ids = JSON.parse(Cast.toString(args.IDS) || "[]");
+      const results = [];
+      
+      for (const id of ids) {
+        const name = await this.getTrackAtt({ ID: id, THING: "name" });
+        const cover = await this.getTrackAtt({ ID: id, THING: "cover" });
+        const description = await this.getTrackAtt({ ID: id, THING: "description" });
+        const artist = await this.getTrackAtt({ ID: id, THING: "artist" });
+        
+        results.push({
+          id: id,
+          name: name,
+          cover: cover,
+          description: description,
+          artist: artist
+        });
+      }
+      
+      return JSON.stringify(results);
     }
   }
 
