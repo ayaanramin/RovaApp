@@ -327,7 +327,7 @@
       }
       url += "limit=" + limit + "&offset=" + offset + "&client_id=" + clientID;
 
-      const response = await this._fetch(url, type[1] + id);
+      const response = await this._fetch(url, type[1] + id + "_" + limit);
       if (response) {
         const collection = response.collection ?? [];
         this._recursiveCache(collection);
