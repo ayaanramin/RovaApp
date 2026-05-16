@@ -187,6 +187,15 @@
               QUERY: { type: Scratch.ArgumentType.STRING, defaultValue: "Ancient Visions" }
             }
           },
+          {
+            opcode: "getTrending",
+            blockType: Scratch.BlockType.REPORTER,
+            text: "get [COUNT] trending tracks in genre [GENRE]",
+            arguments: {
+              COUNT: { type: Scratch.ArgumentType.NUMBER, defaultValue: 10 },
+              GENRE: { type: Scratch.ArgumentType.STRING, menu: "GENRES" }
+            }
+          },
           { blockType: Scratch.BlockType.LABEL, text: "Artists" },
           {
             opcode: "getArtistAtt",
@@ -231,6 +240,10 @@
           TRACKS:  { acceptReporters: true, items: TRACK_ATTRIBUTES },
           ARTISTS: { acceptReporters: true, items: ARTIST_ATTRIBUTES },
           IDS:     { acceptReporters: true, items: [genMenuItem("track"), genMenuItem("artist")] },
+          GENRES: {
+            acceptReporters: true,
+            items: ["all-music","pop","hip-hop-rap","dance-edm","r-b-soul","electronic","rock","classical","country","jazz-blues","reggae","latin","indie","metal","folk-singer-songwriter"]
+          },
           COMMENT: { acceptReporters: true, items: [genMenuItem("new"), genMenuItem("old")] }
         }
       };
@@ -321,6 +334,50 @@
         return this._returnJSON(this._cleanupCollection(type[0], structuredClone(collection)));
       }
       return '["fetch failed"]';
+    }
+
+    async getTrending({ COUNT, GENRE }) {
+      const count  = Math.max(1, Math.min(50, Cast.toNumber(COUNT)));
+      const genre  = Cast.toString(GENRE);
+
+      // Try charts API first
+      const chartsUrl = SoundCloudAPI + "charts?kind=top&genre=soundcloud:genres:" + genre + "&limit=" + count + "&client_id=" + clientID;
+      const chartsRes = await this._fetch(chartsUrl, "TREND_" + genre);
+      if (chartsRes && chartsRes.collection && chartsRes.collection.length > 0) {
+        const tracks = chartsRes.collection.map(item => {
+          const track = item.track;
+          if (track) setCache("T" + track.id, track);
+          return track ? track.id : null;
+        }).filter(Boolean);
+        return this._returnJSON(tracks);
+      }
+
+      // Fallback: search for popular tracks in genre using selection of popular search terms
+      const terms = {
+        "all-music": "top hits 2025",
+        "pop": "pop hits 2025",
+        "hip-hop-rap": "hip hop 2025",
+        "dance-edm": "edm 2025",
+        "r-b-soul": "rnb 2025",
+        "electronic": "electronic 2025",
+        "rock": "rock 2025",
+        "classical": "classical music",
+        "country": "country 2025",
+        "jazz-blues": "jazz 2025",
+        "reggae": "reggae 2025",
+        "latin": "latin hits 2025",
+        "indie": "indie 2025",
+        "metal": "metal 2025",
+        "folk-singer-songwriter": "folk 2025"
+      };
+      const query = terms[genre] || "top hits 2025";
+      const searchUrl = SoundCloudAPI + "search/tracks?q=" + encodeURIComponent(query) + "&limit=" + count + "&client_id=" + clientID;
+      const searchRes = await this._fetch(searchUrl, "TREND_FALLBACK_" + genre);
+      if (searchRes && searchRes.collection) {
+        this._recursiveCache(searchRes.collection);
+        return this._returnJSON(this._cleanupCollection("tracks", searchRes.collection));
+      }
+      return '[]';
     }
 
     async testClient() {
