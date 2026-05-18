@@ -77,7 +77,8 @@
     genMenuItem("likes", null, "likes_count"),
     genMenuItem("comment count", null, "comment_count"),
     genMenuItem("genre", null, "genre"),
-    genMenuItem("url", null, "permalink_url")
+    genMenuItem("url", null, "permalink_url"),
+    genMenuItem("lyrics", null, "description") // Fallback to description as SoundCloud doesn't have a native lyrics field
   ];
   const ARTIST_ATTRIBUTES = [
     genMenuItem("username", null, "username"),
@@ -269,6 +270,14 @@
             text: Scratch.translate("get metadata list from track IDs [IDS]"),
             arguments: {
               IDS: { type: Scratch.ArgumentType.STRING, defaultValue: "[]" }
+            }
+          },
+          {
+            opcode: "getSyncedLyrics",
+            blockType: Scratch.BlockType.REPORTER,
+            text: Scratch.translate("get synced lyrics for track ID [ID]"),
+            arguments: {
+              ID: { type: Scratch.ArgumentType.NUMBER, defaultValue: 241049935 }
             }
           }
         ],
@@ -583,6 +592,32 @@
       }
       
       return JSON.stringify(results);
+    }
+
+    async getSyncedLyrics(args) {
+      const id = Cast.toNumber(args.ID);
+      try {
+        // First, get track info to get the title and artist name for searching
+        const name = await this.getTrackAtt({ ID: id, THING: "name" });
+        const artist = await this.getTrackAtt({ ID: id, THING: "artist" });
+        
+        if (!name || !artist) return "";
+
+        // Search LRCLIB for synced lyrics
+        const query = `${name} ${artist}`;
+        const url = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
+        const req = await fetch(url); // LRCLIB usually doesn't need a proxy for simple GET
+        const json = await req.json();
+        
+        if (json && json.length > 0) {
+          // Find the best match with synced lyrics
+          const match = json.find(item => item.syncedLyrics) || json[0];
+          return match.syncedLyrics || match.plainLyrics || "";
+        }
+      } catch (err) {
+        console.error("Error getting synced lyrics:", err);
+      }
+      return "";
     }
   }
 
